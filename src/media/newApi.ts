@@ -2,9 +2,9 @@ import ffmpeg from 'fluent-ffmpeg';
 import pDebounce from 'p-debounce';
 import sharp from 'sharp';
 import Log from 'debug-level';
-import { demux } from './LibavDemuxer.js';
-import { setTimeout as delay } from 'node:timers/promises';
+import * as zmq from "zeromq";
 import { PassThrough, type Readable } from "node:stream";
+import { demux } from './LibavDemuxer.js';
 import { VideoStream } from './VideoStream.js';
 import { AudioStream } from './AudioStream.js';
 import { isFiniteNonZero } from '../utils.js';
@@ -98,6 +98,11 @@ export type EncoderOptions = {
      */
     customFfmpegFlags: string[]
 }
+
+export type Controller = {
+    volume: number,
+    setVolume(newVolume: number): Promise<boolean>
+};
 
 export function prepareStream(
     input: string | Readable,
@@ -310,11 +315,24 @@ export function prepareStream(
             .addOutputOption("-lfe_mix_level 1")
             .audioFrequency(48000)
             .audioCodec("libopus")
-            .audioBitrate(`${bitrateAudio}k`);
+            .audioBitrate(`${bitrateAudio}k`)
+            .audioFilters("volume@internal_lib=1.0")
 
     // Add custom ffmpeg flags
     if (mergedOptions.customFfmpegFlags && mergedOptions.customFfmpegFlags.length > 0) {
         command.addOptions(mergedOptions.customFfmpegFlags);
+    }
+
+    // realtime control mechanism
+    const zmqAudio = "tcp://localhost:42069";
+    const zmqAudioClient = new zmq.Request({ sendTimeout: 5000, receiveTimeout: 5000 });
+
+    if (includeAudio)
+    {
+        command.audioFilters(`azmq=b=${zmqAudio.replaceAll(":","\\\\:")}`)
+        output.once("data", () => {
+            zmqAudioClient.connect(zmqAudio);
+        });
     }
 
     // exit handling
@@ -487,17 +505,16 @@ export async function playStream(
         const aStream = new AudioStream(udp);
         audio.stream.pipe(aStream);
         vStream.syncStream = aStream;
-        aStream.syncStream = vStream;
 
         const burstTime = mergedOptions.readrateInitialBurst;
         if (typeof burstTime === "number")
         {
-            vStream.sync = aStream.sync = false;
+            vStream.sync = false;
             vStream.noSleep = aStream.noSleep = true;
             const stopBurst = (pts: number) => {
                 if (pts < burstTime * 1000)
                     return;
-                vStream.sync = aStream.sync = true;
+                vStream.sync = true;
                 vStream.noSleep = aStream.noSleep = false;
                 vStream.off("pts", stopBurst);
             };
