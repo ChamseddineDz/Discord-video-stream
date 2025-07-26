@@ -33,3 +33,6 @@ examples/basic/README.md
 examples/basic/package.json
 package.json
 examples/puppeteer-stream/src/index.ts
+src/media/old.ts
+bot.txt
+codebase.py

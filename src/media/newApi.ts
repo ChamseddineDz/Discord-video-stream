@@ -103,6 +103,8 @@ export interface AudioController {
     mute(): void;
     unmute(): void;
     isMuted(): boolean;
+    setVolume(volume: number): void;
+    getVolume(): number;
 }
 
 export function prepareStream(
