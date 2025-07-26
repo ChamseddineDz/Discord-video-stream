@@ -2,9 +2,9 @@ import ffmpeg from 'fluent-ffmpeg';
 import pDebounce from 'p-debounce';
 import sharp from 'sharp';
 import Log from 'debug-level';
-import * as zmq from "zeromq";
 import { PassThrough, type Readable } from "node:stream";
 import { demux } from './LibavDemuxer.js';
+import { setTimeout as delay } from 'node:timers/promises';
 import { VideoStream } from './VideoStream.js';
 import { AudioStream } from './AudioStream.js';
 import { isFiniteNonZero } from '../utils.js';
@@ -99,10 +99,11 @@ export type EncoderOptions = {
     customFfmpegFlags: string[]
 }
 
-export type Controller = {
-    volume: number,
-    setVolume(newVolume: number): Promise<boolean>
-};
+export interface AudioController {
+    mute(): void;
+    unmute(): void;
+    isMuted(): boolean;
+}
 
 export function prepareStream(
     input: string | Readable,
@@ -323,18 +324,6 @@ export function prepareStream(
         command.addOptions(mergedOptions.customFfmpegFlags);
     }
 
-    // realtime control mechanism
-    const zmqAudio = "tcp://localhost:42069";
-    const zmqAudioClient = new zmq.Request({ sendTimeout: 5000, receiveTimeout: 5000 });
-
-    if (includeAudio)
-    {
-        command.audioFilters(`azmq=b=${zmqAudio.replaceAll(":","\\\\:")}`)
-        output.once("data", () => {
-            zmqAudioClient.connect(zmqAudio);
-        });
-    }
-
     // exit handling
     const promise = new Promise<void>((resolve, reject) => {
         command.on("error", (err) => {
@@ -398,6 +387,7 @@ export type PlayStreamOptions = {
     streamPreview: boolean,
     seekTime?: number;
     customHeaders?: Record<string, string>;
+    initialMuted?: boolean;
 }
 
 export async function playStream(
@@ -405,7 +395,7 @@ export async function playStream(
     options: Partial<PlayStreamOptions> = {},
     cancelSignal?: AbortSignal,
     existingUdp: MediaUdp | null = null,
-)
+): Promise<{ audioController?: AudioController; done: Promise<void> }> 
 {
     const logger = new Log("playStream");
     cancelSignal?.throwIfAborted();
@@ -435,7 +425,8 @@ export async function playStream(
         readrateInitialBurst: undefined,
         streamPreview: false,
         seekTime: 0,
-        customHeaders: {}
+        customHeaders: {},
+        initialMuted: false,
     } satisfies PlayStreamOptions;
 
     function mergeOptions(opts: Partial<PlayStreamOptions>)
@@ -471,7 +462,9 @@ export async function playStream(
             seekTime: opts.seekTime ?? defaultOptions.seekTime,
             customHeaders: {
                         ...defaultOptions.customHeaders, ...opts.customHeaders
-            }
+            },
+            initialMuted:
+                opts.initialMuted ?? defaultOptions.initialMuted,
         } satisfies PlayStreamOptions;
     }
 
@@ -500,22 +493,27 @@ export async function playStream(
 
     const vStream = new VideoStream(udp);
     video.stream.pipe(vStream);
+    let audioStreamInstance: AudioStream | undefined;
+
     if (audio)
     {
-        const aStream = new AudioStream(udp);
-        audio.stream.pipe(aStream);
-        vStream.syncStream = aStream;
+        audioStreamInstance = new AudioStream(udp, false, mergedOptions.initialMuted);
+        audio.stream.pipe(audioStreamInstance);
+        vStream.syncStream = audioStreamInstance;
+        audioStreamInstance.syncStream = vStream;
 
         const burstTime = mergedOptions.readrateInitialBurst;
         if (typeof burstTime === "number")
         {
             vStream.sync = false;
-            vStream.noSleep = aStream.noSleep = true;
+            vStream.noSleep = audioStreamInstance.noSleep = true;
             const stopBurst = (pts: number) => {
                 if (pts < burstTime * 1000)
                     return;
                 vStream.sync = true;
-                vStream.noSleep = aStream.noSleep = false;
+                if (audioStreamInstance) {
+                    vStream.noSleep = audioStreamInstance.noSleep = false;
+                }
                 vStream.off("pts", stopBurst);
             };
             vStream.on("pts", stopBurst);
@@ -563,7 +561,7 @@ export async function playStream(
             cleanupFuncs.push(() => video.stream.off("data", updatePreview));
         })();
     }
-    return new Promise<void>((resolve, reject) => {
+    const streamPromise = new Promise<void>((resolve, reject) => {
         cleanupFuncs.push(() => {
             stopStream();
             udp.mediaConnection.setSpeaking(false);
@@ -576,11 +574,11 @@ export async function playStream(
             cleanedUp = true;
             for (const f of cleanupFuncs)
                 f();
-        };
+        }
         cancelSignal?.addEventListener("abort", () => {
             cleanup();
             reject(cancelSignal.reason);
-        }, { once: true });
+        }, { once: true })
         vStream.once("finish", () => {
             if (cancelSignal?.aborted)
                 return;
@@ -609,4 +607,8 @@ export async function playStream(
              throw err;
         }
    });
+      return {
+       audioController: audioStreamInstance,
+       done: streamPromise,
+   };
 }

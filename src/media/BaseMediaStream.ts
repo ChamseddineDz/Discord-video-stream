@@ -40,8 +40,8 @@ export class BaseMediaStream extends Writable {
     }
     set syncStream(stream: BaseMediaStream | undefined)
     {
-        if (stream !== undefined && this === stream.syncStream)
-            throw new Error("Cannot sync 2 streams with eachother");
+        if (stream === this)
+            throw new Error("A stream cannot sync with itself");
         this._syncStream = stream;
     }
     get noSleep(): boolean {
