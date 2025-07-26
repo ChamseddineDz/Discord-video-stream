@@ -1,7 +1,7 @@
 {
-    "name": "@dank074/discord-video-stream",
-    "version": "5.0.1",
-    "description": "Experiment for making video streaming work for discord selfbots",
+    "name": "@m7mdxzx1/discord-video-straeam",
+    "version": "0.0.2",
+    "description": "A fork from dank to use self-bot to do video share",
     "exports": "./dist/index.js",
     "types": "dist/index.d.ts",
     "type": "module",
@@ -39,9 +39,7 @@
         "node": ">=21.0.0"
     },
     "scripts": {
-        "build": "tsc",
-        "lint": "biome lint --error-on-warnings .",
-        "lint:fix": "biome lint --write ."
+        "build": "tsc"
     },
     "keywords": [
         "discord",
@@ -52,7 +50,7 @@
     ],
     "repository": {
         "type": "git",
-        "url": "git+https://github.com/dank074/Discord-video-stream.git"
+        "url": "git+https://github.com/ChamseddineDz/Discord-video-stream.git"
     },
     "contributors": [
         "Long Nguyen <nguyen.long.908132@gmail.com>",
@@ -64,7 +62,7 @@
     ],
     "license": "ISC",
     "bugs": {
-        "url": "https://github.com/dank074/Discord-video-stream/issues"
+        "url": "https://github.com/ChamseddineDz/Discord-video-stream/issues"
     },
-    "homepage": "https://github.com/dank074/Discord-video-stream#readme"
+    "homepage": "https://github.com/ChamseddineDz/Discord-video-stream#readme"
 }

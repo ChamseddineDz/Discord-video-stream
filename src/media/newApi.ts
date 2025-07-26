@@ -197,7 +197,7 @@ export function prepareStream(
 
     // command creation
     const command = ffmpeg(input)
-        .addOption('-loglevel', '0');
+        .addOption('-loglevel', 'info');
 
     // Seeking if applicable
     if (mergedOptions.seekTime && mergedOptions.seekTime > 0) {
@@ -385,7 +385,8 @@ export type PlayStreamOptions = {
 export async function playStream(
     input: Readable, streamer: Streamer,
     options: Partial<PlayStreamOptions> = {},
-    cancelSignal?: AbortSignal
+    cancelSignal?: AbortSignal,
+    existingUdp: MediaUdp | null = null,
 )
 {
     const logger = new Log("playStream");
@@ -461,17 +462,16 @@ export async function playStream(
 
     let udp: MediaUdp;
     let stopStream: () => unknown;
-    if (mergedOptions.type === "go-live")
-    {
+    if (!existingUdp) {
         udp = await streamer.createStream();
-        stopStream = () => streamer.stopStream();
+    } else {
+        udp = existingUdp;
+        udp.mediaConnection.setSpeaking(false);
+        udp.mediaConnection.setVideoAttributes(false);
+        await delay(250);
     }
-    else
-    {
-        udp = streamer.voiceConnection!.udp;
-        streamer.signalVideo(true);
-        stopStream = () => streamer.signalVideo(false);
-    }
+    // stopStream = () => streamer.stopStream();
+    stopStream = () => console.log("Aborted")
     udp.setPacketizer(videoCodecMap[video.codec]);
     udp.mediaConnection.setSpeaking(true);
     udp.mediaConnection.setVideoAttributes(true, {
